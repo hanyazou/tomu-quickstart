@@ -1,4 +1,4 @@
 # README
 
-This example implements a USB Human Interface Device (HID)
-to demonstrate the use of the USB device stack.
+To prevent computer screen lock by sending mouse events periodically.
+This tiny program is based on the USB HID example.

@@ -35,10 +35,19 @@
 #include <libopencm3/efm32/wdog.h>
 #include <libopencm3/efm32/gpio.h>
 #include <libopencm3/efm32/cmu.h>
+#include <toboot.h>
 
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+
+#define INTERVAL 180 /* mouse event interval in seconds */
+#define ALIVE_LED 0
+#define AUTO_RUN 1
+
+#if AUTO_RUN
+TOBOOT_CONFIGURATION(TOBOOT_CONFIG_FLAG_AUTORUN);
+#endif
 
 /* Systick interrupt frequency, Hz */
 #define SYSTICK_FREQUENCY 100
@@ -181,8 +190,8 @@ const struct usb_config_descriptor config = {
 
 static const char *usb_strings[] = {
 	"Tomu",
-	"HID Demo",
-	"DEMO",
+	"HID no sleep",
+	"2020-05-06 hanyazou@gmail.com",
 };
 
 /* Buffer to be used for control requests. */
@@ -235,32 +244,37 @@ void hard_fault_handler(void)
 
 void sys_tick_handler(void)
 {
-	static int x = 0;
-	static int dir = 1;
-	static uint8_t buf[4] = {0, 0, 0, 0};
+    static uint8_t buf[4] = {0, 0, 0, 0};
+    static int dir = 1;
+    static int tick_count = 0;
+    static int timer = 0;
 
-    if(g_usbd_is_connected) {
+    if(!g_usbd_is_connected)
+        return;
 
-        buf[1] = dir;
-        x += dir;
-
-        if (x > 30) {
-            gpio_toggle(LED_GREEN_PORT, LED_GREEN_PIN);
-            dir = -dir;
-        }
-
-        if (x < -30) {
-            gpio_toggle(LED_GREEN_PORT, LED_GREEN_PIN);
-            dir = -dir;
-        }
-
-        usbd_ep_write_packet(g_usbd_dev, 0x81, buf, 4);
+    if (0 < timer && --timer == 0) {
+        gpio_set(LED_GREEN_PORT, LED_GREEN_PIN);
     }
+
+    if(++tick_count < SYSTICK_FREQUENCY * INTERVAL) {
+        return;
+    }
+    tick_count = 0;
+
+    buf[1] = dir;
+    dir = -dir;
+    usbd_ep_write_packet(g_usbd_dev, 0x81, buf, 4);
+
+    gpio_clear(LED_GREEN_PORT, LED_GREEN_PIN);
+    //timer = SYSTICK_FREQUENCY / 10; /* after 0.1 second, the LED shall tern off */
+    timer = 1;
 }
 
 int main(void)
 {
+#if ALIVE_LED
     int i;
+#endif
 
     /* Make sure the vector table is relocated correctly (after the Tomu bootloader) */
     SCB_VTOR = 0x4000;
@@ -290,8 +304,12 @@ int main(void)
     nvic_set_priority(NVIC_SYSTICK_IRQ, 0x10);
 
     while(1) {
+#if ALIVE_LED
         gpio_toggle(LED_RED_PORT, LED_RED_PIN);
         for(i = 0; i != 500000; ++i)
 			__asm__("nop");
+#else
+        gpio_set(LED_RED_PORT, LED_RED_PIN);
+#endif
     }
 }
